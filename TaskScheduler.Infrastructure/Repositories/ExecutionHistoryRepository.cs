@@ -41,4 +41,11 @@ public class ExecutionHistoryRepository : IExecutionHistoryRepository
             .Take(limit)
             .ToListAsync();
     }
+
+    public async Task<List<TaskExecutionHistory>> GetByStatusAsync(ExecutionStatus status)
+    {
+        return await _context.TaskExecutionHistories
+            .Where(h => h.Status == status)
+            .ToListAsync();
+    }
 }

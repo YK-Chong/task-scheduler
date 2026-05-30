@@ -8,4 +8,5 @@ public interface IExecutionHistoryRepository
     Task<TaskExecutionHistory> GetByIdAsync(string id);
     Task<TaskExecutionHistory> UpdateAsync(TaskExecutionHistory history);
     Task<List<TaskExecutionHistory>> GetByTaskIdAsync(string taskId, int limit = 20);
+    Task<List<TaskExecutionHistory>> GetByStatusAsync(ExecutionStatus status);
 }

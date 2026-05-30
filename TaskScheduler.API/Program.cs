@@ -91,6 +91,20 @@ try
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
 
+        // Mark any orphaned Running records as Failed (caused by unexpected shutdown)
+        var historyRepo = scope.ServiceProvider.GetRequiredService<IExecutionHistoryRepository>();
+        var runningHistories = await historyRepo.GetByStatusAsync(TaskScheduler.Core.Entities.ExecutionStatus.Running);
+        foreach (var history in runningHistories)
+        {
+            history.Status = TaskScheduler.Core.Entities.ExecutionStatus.Failed;
+            history.EndTime = DateTime.UtcNow;
+            history.DurationMs = (long)(DateTime.UtcNow - history.StartTime).TotalMilliseconds;
+            history.ErrorMessage = "Application terminated unexpectedly";
+            await historyRepo.UpdateAsync(history);
+        }
+        if (runningHistories.Count > 0)
+            Log.Warning("Marked {Count} orphaned Running history records as Failed", runningHistories.Count);
+
         var taskRepo = scope.ServiceProvider.GetRequiredService<ITaskRepository>();
         var taskService = scope.ServiceProvider.GetRequiredService<ITaskService>();
 
