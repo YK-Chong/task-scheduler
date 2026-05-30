@@ -16,7 +16,7 @@ public class ReportGenerationJob : IJob
     public async Task Execute(IJobExecutionContext context)
     {
         var taskName = context.JobDetail.GetTaskName();
-        var reportType = context.JobDetail.JobDataMap.GetString("reportType") ?? "General";
+        var reportType = context.JobDetail.GetReportType();
 
         _logger.LogInformation("[{TaskName}] Generating {ReportType} report", taskName, reportType);
 

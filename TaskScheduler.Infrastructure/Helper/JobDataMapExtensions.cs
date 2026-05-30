@@ -24,4 +24,11 @@ public static class JobDataMapExtensions
             ? value?.ToString()
             : null;
     }
+
+    public static string GetReportType(this IJobDetail jobDetail)
+    {
+        return jobDetail.JobDataMap.TryGetValue("reportType", out var value)
+            ? value?.ToString() ?? "General"
+            : "General";
+    }
 }

@@ -47,7 +47,7 @@ public class JobExecutionListener : IJobListener
         });
 
         _executionHistoryMap[context.FireInstanceId] = history.Id;
-        _logger.LogInformation($"[{context.JobDetail.GetTaskName()}] Started. HistoryId: {history.Id}");
+        _logger.LogInformation("[{TaskName}] Started. HistoryId: {HistoryId}", context.JobDetail.GetTaskName(), history.Id);
     }
 
     public async Task JobWasExecuted(IJobExecutionContext context, JobExecutionException? jobException, CancellationToken cancellationToken = default)
@@ -79,7 +79,7 @@ public class JobExecutionListener : IJobListener
         else
         {
             history.Status = ExecutionStatus.Completed;
-            _logger.LogInformation($"[{taskName}] Completed in {history.DurationMs}ms. HistoryId: {history.Id}");
+            _logger.LogInformation("[{TaskName}] Completed in {DurationMs}ms. HistoryId: {HistoryId}", taskName, history.DurationMs, history.Id);
         }
 
         await historyRepo.UpdateAsync(history);

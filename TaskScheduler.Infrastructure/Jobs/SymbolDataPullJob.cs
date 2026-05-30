@@ -27,10 +27,10 @@ public class SymbolDataPullJob : IJob
         var server = await serverRepo.GetByIdAsync(context.JobDetail.GetServerId());
         var serverName = server?.Name ?? string.Empty;
 
-        _logger.LogInformation($"[{taskName}] Pulling data for {serverName}");
+        _logger.LogInformation("[{TaskName}] Pulling data for {ServerName}", taskName, serverName);
 
         await Task.Delay(1000);
 
-        _logger.LogInformation($"[{taskName}] Finished pulling data for {serverName}");
+        _logger.LogInformation("[{TaskName}] Finished pulling data for {ServerName}", taskName, serverName);
     }
 }

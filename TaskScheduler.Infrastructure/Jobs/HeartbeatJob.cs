@@ -23,6 +23,6 @@ public class HeartbeatJob : IJob
 
         await Task.Delay(1000);
 
-        _logger.LogInformation("[{TaskName}] Finished sending heartbeat", taskName);
+        _logger.LogInformation("[{TaskName}] Heartbeat sent successfully to {Endpoint}", taskName, endpoint);
     }
 }

@@ -34,8 +34,12 @@ public class MasterServerSyncJob : IJob
         var allServers = await serverRepo.GetAllAsync();
         var serverNameById = allServers.ToDictionary(s => s.Id, s => s.Name);
         var enabledServers = allServers.Where(s => s.IsEnabled).ToList();
+        var disabledServers = allServers.Where(s => !s.IsEnabled).ToList();
         var enabledServerIds = enabledServers.Select(s => s.Id).ToHashSet();
         var taskName = context.JobDetail.GetTaskName();
+
+        _logger.LogInformation("[{TaskName}] Syncing — {EnabledCount} enabled server(s), {DisabledCount} disabled server(s)",
+            taskName, enabledServers.Count, disabledServers.Count);
 
         // Ensure jobs exist for all enabled servers
         foreach (var server in enabledServers)
@@ -85,5 +89,7 @@ public class MasterServerSyncJob : IJob
             var serverName = serverNameById!.GetValueOrDefault(task.ServerId, task.ServerId);
             _logger.LogInformation("[{TaskName}] Removed job for disabled server - {ServerName}", taskName, serverName);
         }
+
+        _logger.LogInformation("[{TaskName}] Sync complete", taskName);
     }
 }
