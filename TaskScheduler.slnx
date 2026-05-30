@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TaskScheduler.API/TaskScheduler.API.csproj" />
+  <Project Path="TaskScheduler.Core/TaskScheduler.Core.csproj" />
+  <Project Path="TaskScheduler.Infrastructure/TaskScheduler.Infrastructure.csproj" />
+</Solution>
