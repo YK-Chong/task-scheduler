@@ -9,5 +9,5 @@ public class TaskExecutionHistory
     public ExecutionStatus Status { get; set; }
     public long? DurationMs { get; set; }
     public string? ErrorMessage { get; set; }
-    public ScheduledTask Task { get; set; }
+    public ScheduledTask? Task { get; set; }
 }
