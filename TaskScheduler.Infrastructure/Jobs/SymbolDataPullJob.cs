@@ -24,13 +24,19 @@ public class SymbolDataPullJob : IJob
         var serverRepo = scope.ServiceProvider.GetRequiredService<ITradingServerRepository>();
 
         var taskName = context.JobDetail.GetTaskName();
-        var server = await serverRepo.GetByIdAsync(context.JobDetail.GetServerId());
-        var serverName = server?.Name ?? string.Empty;
+        var serverId = context.JobDetail.GetServerId();
+        var server = await serverRepo.GetByIdAsync(serverId);
 
-        _logger.LogInformation("[{TaskName}] Pulling data for {ServerName}", taskName, serverName);
+        if (server == null)
+        {
+            _logger.LogInformation("[{TaskName}] Server (ID: {ServerId}) has been deleted, skipping execution", taskName, serverId);
+            return;
+        }
+
+        _logger.LogInformation("[{TaskName}] Pulling data for {ServerName}", taskName, server.Name);
 
         await Task.Delay(1000);
 
-        _logger.LogInformation("[{TaskName}] Finished pulling data for {ServerName}", taskName, serverName);
+        _logger.LogInformation("[{TaskName}] Finished pulling data for {ServerName}", taskName, server.Name);
     }
 }
