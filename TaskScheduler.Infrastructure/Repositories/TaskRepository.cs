@@ -75,11 +75,6 @@ public class TaskRepository : ITaskRepository
         }
     }
 
-    public async Task<bool> ExistsAsync(string id)
-    {
-        return await _context.ScheduledTasks.AnyAsync(t => t.Id == id);
-    }
-
     public async Task<ScheduledTask> GetByJobTypeAndServerIdAsync(JobType jobType, string? serverId)
     {
         return await _context.ScheduledTasks

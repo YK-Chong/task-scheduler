@@ -27,9 +27,8 @@ public class MasterServerSyncJob : IJob
         var serverRepo = scope.ServiceProvider.GetRequiredService<ITradingServerRepository>();
         var taskRepo = scope.ServiceProvider.GetRequiredService<ITaskRepository>();
         var taskService = scope.ServiceProvider.GetRequiredService<ITaskService>();
-        var schedulerFactory = scope.ServiceProvider.GetRequiredService<ISchedulerFactory>();
+        var taskScheduler = scope.ServiceProvider.GetRequiredService<ITaskScheduler>();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
-        var scheduler = await schedulerFactory.GetScheduler();
 
         var allServers = await serverRepo.GetAllAsync();
         var serverNameById = allServers.ToDictionary(s => s.Id, s => s.Name);
@@ -51,7 +50,7 @@ public class MasterServerSyncJob : IJob
 
             if (existingTask != null)
             {
-                if (await scheduler.CheckExists(JobKeyHelper.GetJobKey(existingTask)))
+                if (await taskScheduler.CheckExistsAsync(existingTask))
                 {
                     continue;
                 }

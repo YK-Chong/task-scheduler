@@ -1,7 +1,7 @@
 using TaskScheduler.Core.Entities;
 using TaskScheduler.Core.Interfaces;
 
-namespace TaskScheduler.Infrastructure.Services;
+namespace TaskScheduler.Core.Services;
 
 public class TradingServerService : ITradingServerService
 {
@@ -28,7 +28,7 @@ public class TradingServerService : ITradingServerService
         return await _serverRepo.CreateAsync(server);
     }
 
-    public async Task<TradingServer> SetEnabledAsync(string id, bool isEnabled)
+    public async Task<TradingServer?> SetEnabledAsync(string id, bool isEnabled)
     {
         var server = await _serverRepo.GetByIdAsync(id);
         if (server == null) return null;

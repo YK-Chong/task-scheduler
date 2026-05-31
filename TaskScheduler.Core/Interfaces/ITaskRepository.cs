@@ -10,7 +10,6 @@ public interface ITaskRepository
     Task<ScheduledTask> CreateAsync(ScheduledTask task);
     Task<ScheduledTask> UpdateAsync(ScheduledTask task);
     Task DeleteAsync(string id);
-    Task<bool> ExistsAsync(string id);
     Task<ScheduledTask> GetByJobTypeAndServerIdAsync(JobType jobType, string? serverId);
     Task<List<ScheduledTask>> GetByJobTypeAsync(JobType jobType);
 }

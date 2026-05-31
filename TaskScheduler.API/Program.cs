@@ -3,10 +3,11 @@ using Quartz;
 using Serilog;
 using Serilog.Events;
 using TaskScheduler.Core.Interfaces;
+using TaskScheduler.Core.Services;
 using TaskScheduler.Infrastructure.Data;
 using TaskScheduler.Infrastructure.Jobs;
 using TaskScheduler.Infrastructure.Repositories;
-using TaskScheduler.Infrastructure.Services;
+using TaskScheduler.Infrastructure.Scheduler;
 
 // Serilog Logger
 Log.Logger = new LoggerConfiguration()
@@ -39,6 +40,7 @@ try
     // Services
     builder.Services.AddScoped<ITaskService, TaskService>();
     builder.Services.AddScoped<ITradingServerService, TradingServerService>();
+    builder.Services.AddScoped<ITaskScheduler, QuartzTaskScheduler>();
 
     // Quartz
     builder.Services.AddQuartz(q =>
@@ -85,9 +87,9 @@ try
     // Build App
     var app = builder.Build();
 
-    // Auto migrate + Schedule Master Job
     using (var scope = app.Services.CreateScope())
     {
+        // Auto migrate
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
 
@@ -108,6 +110,7 @@ try
         var taskRepo = scope.ServiceProvider.GetRequiredService<ITaskRepository>();
         var taskService = scope.ServiceProvider.GetRequiredService<ITaskService>();
 
+        // Schedule MasterServerSyncJob
         var masterTask = await taskRepo.GetByJobTypeAndServerIdAsync(
             TaskScheduler.Core.Entities.JobType.MasterServerSyncJob, null);
 

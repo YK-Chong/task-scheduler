@@ -1,39 +1,27 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Quartz;
 using TaskScheduler.Core.DTOs;
 using TaskScheduler.Core.Entities;
 using TaskScheduler.Core.Interfaces;
-using TaskScheduler.Infrastructure.Helper;
-using TaskScheduler.Infrastructure.Jobs;
 
-namespace TaskScheduler.Infrastructure.Services;
+namespace TaskScheduler.Core.Services;
 
 public class TaskService : ITaskService
 {
     private readonly ITaskRepository _taskRepo;
     private readonly IExecutionHistoryRepository _historyRepo;
-    private readonly ISchedulerFactory _schedulerFactory;
+    private readonly ITaskScheduler _taskScheduler;
     private readonly ILogger<TaskService> _logger;
-
-    // Maps JobType enum to actual Quartz job class
-    private static readonly Dictionary<JobType, Type> JobTypeMap = new Dictionary<JobType, Type>()
-    {
-        { JobType.HeartbeatJob, typeof(HeartbeatJob) },
-        { JobType.ReportGenerationJob, typeof(ReportGenerationJob) },
-        { JobType.SymbolDataPullJob, typeof(SymbolDataPullJob) },
-        { JobType.MasterServerSyncJob, typeof(MasterServerSyncJob) }
-    };
 
     public TaskService(
         ITaskRepository taskRepo,
         IExecutionHistoryRepository historyRepo,
-        ISchedulerFactory schedulerFactory,
+        ITaskScheduler taskScheduler,
         ILogger<TaskService> logger)
     {
         _taskRepo = taskRepo;
         _historyRepo = historyRepo;
-        _schedulerFactory = schedulerFactory;
+        _taskScheduler = taskScheduler;
         _logger = logger;
     }
 
@@ -66,7 +54,7 @@ public class TaskService : ITaskService
 
         // Schedule in Quartz if enabled
         if (task.IsEnabled)
-            await ScheduleJobAsync(task);
+            await _taskScheduler.ScheduleAsync(task);
 
         _logger.LogInformation("Task {TaskName} created with ID {TaskId}", task.Name, task.Id);
 
@@ -129,13 +117,13 @@ public class TaskService : ITaskService
             task.IsEnabled = request.IsEnabled.Value;
 
             if (task.IsEnabled)
-                await ScheduleJobAsync(task);
+                await _taskScheduler.ScheduleAsync(task);
             else
-                await UnscheduleJobAsync(task);
+                await _taskScheduler.UnscheduleAsync(task);
         }
         else if (task.IsEnabled && needsReschedule)
         {
-            await ScheduleJobAsync(task);
+            await _taskScheduler.ScheduleAsync(task);
         }
 
         await _taskRepo.UpdateAsync(task);
@@ -147,7 +135,7 @@ public class TaskService : ITaskService
         var task = await _taskRepo.GetByIdAsync(id);
         if (task == null) return false;
 
-        await UnscheduleJobAsync(task);
+        await _taskScheduler.UnscheduleAsync(task);
         await _taskRepo.DeleteAsync(id);
 
         _logger.LogInformation("Task {TaskId} deleted", id);
@@ -159,28 +147,17 @@ public class TaskService : ITaskService
         var task = await _taskRepo.GetByIdAsync(id);
         if (task == null) return null;
 
-        var scheduler = await _schedulerFactory.GetScheduler();
-        var jobKey = JobKeyHelper.GetJobKey(task);
-
-        // Get next fire time from Quartz
-        DateTime? nextTriggerAt = null;
-        var triggers = await scheduler.GetTriggersOfJob(jobKey);
-        var nextFireTime = triggers.Select(t => t.GetNextFireTimeUtc()).Where(t => t.HasValue).Min();
-        if (nextFireTime.HasValue)
-            nextTriggerAt = nextFireTime.Value.UtcDateTime;
+        var nextTriggerAt = await _taskScheduler.GetNextFireTimeAsync(task);
 
         // Get execution history
         var histories = await _historyRepo.GetByTaskIdAsync(id);
         var latest = histories.FirstOrDefault();
 
-        // Determine current status — default to Pending if task has never run
-        var currentStatus = latest?.Status ?? ExecutionStatus.Pending;
-
         return new TaskStatusResponse
         {
             TaskId = task.Id,
             Name = task.Name,
-            CurrentStatus = currentStatus,
+            CurrentStatus = latest?.Status ?? ExecutionStatus.Pending,
             LastTriggeredAt = latest?.StartTime,
             NextTriggerAt = nextTriggerAt,
             ExecutionHistory = histories.Select(h => new ExecutionHistoryItem
@@ -200,15 +177,11 @@ public class TaskService : ITaskService
         var task = await _taskRepo.GetByIdAsync(id);
         if (task == null) return false;
 
-        var scheduler = await _schedulerFactory.GetScheduler();
-        var jobKey = JobKeyHelper.GetJobKey(task);
+        var triggered = await _taskScheduler.TriggerAsync(task);
+        if (triggered)
+            _logger.LogInformation("Task {TaskId} manually triggered", task.Id);
 
-        if (!await scheduler.CheckExists(jobKey))
-            return false;
-
-        await scheduler.TriggerJob(jobKey);
-        _logger.LogInformation("Task {TaskId} manually triggered", task.Id);
-        return true;
+        return triggered;
     }
 
     public async Task RescheduleTaskAsync(string id)
@@ -216,85 +189,10 @@ public class TaskService : ITaskService
         var task = await _taskRepo.GetByIdAsync(id);
         if (task == null) return;
 
-        await ScheduleJobAsync(task);
+        await _taskScheduler.ScheduleAsync(task);
     }
 
     #region Private Functions
-    private async Task ScheduleJobAsync(ScheduledTask task)
-    {
-        if (!JobTypeMap.TryGetValue(task.JobType, out var jobClass))
-        {
-            _logger.LogWarning("No job class mapped for JobType {JobType}", task.JobType);
-            return;
-        }
-
-        var scheduler = await _schedulerFactory.GetScheduler();
-        var jobKey = JobKeyHelper.GetJobKey(task);
-
-        // Build job with metadata from task
-        var jobBuilder = JobBuilder.Create(jobClass)
-            .WithIdentity(jobKey)
-            .StoreDurably()
-            .UsingJobData("taskId", task.Id)
-            .UsingJobData("taskName", task.Name);
-
-        if (!string.IsNullOrEmpty(task.ServerId))
-            jobBuilder.UsingJobData("serverId", task.ServerId);
-
-        // Concurrency control based on flag
-        if (task.DisallowConcurrent)
-            jobBuilder = jobBuilder.DisallowConcurrentExecution();
-
-        // Pass metadata into JobDataMap so jobs can read config
-        if (!string.IsNullOrEmpty(task.Metadata))
-        {
-            var metadata = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(task.Metadata);
-            if (metadata != null)
-                foreach (var kvp in metadata)
-                    jobBuilder.UsingJobData(kvp.Key, kvp.Value.ToString());
-        }
-
-        var job = jobBuilder.Build();
-
-        // Quartz throws ObjectAlreadyExistsException if job key exists — delete first to allow reschedule
-        if (await scheduler.CheckExists(jobKey))
-            await scheduler.DeleteJob(jobKey);
-
-        // Build trigger based on schedule type
-        var triggerBuilder = TriggerBuilder.Create()
-            .WithIdentity(JobKeyHelper.GetTriggerKey(task))
-            .StartNow();
-
-        if (task.ScheduleType == ScheduleType.Simple)
-        {
-            triggerBuilder.WithSimpleSchedule(x => x
-                .WithIntervalInSeconds(task.IntervalSeconds!.Value)
-                .RepeatForever()
-                .WithMisfireHandlingInstructionNextWithRemainingCount());
-        }
-        else
-        {
-            triggerBuilder.WithCronSchedule(task.CronExpression!);
-        }
-
-        var trigger = triggerBuilder.Build();
-
-        await scheduler.ScheduleJob(job, trigger);
-        _logger.LogInformation("Scheduled job {JobKey}", jobKey);
-    }
-
-    private async Task UnscheduleJobAsync(ScheduledTask task)
-    {
-        var scheduler = await _schedulerFactory.GetScheduler();
-        var jobKey = JobKeyHelper.GetJobKey(task);
-
-        if (await scheduler.CheckExists(jobKey))
-        {
-            await scheduler.DeleteJob(jobKey);
-            _logger.LogInformation("Unscheduled job {JobKey}", jobKey);
-        }
-    }
-
     private static TaskResponse MapToResponse(ScheduledTask task)
     {
         return new TaskResponse
