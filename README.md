@@ -1,6 +1,6 @@
 # Task Scheduler
 
-A distributed task scheduling system built with **.NET 8**, **Quartz.NET**, and **MySQL**. Manages automated jobs across multiple trading servers via a REST API, with dynamic task creation, concurrent execution control, and execution history tracking.
+A distributed task scheduling system that manages automated jobs across multiple trading servers. Supports dynamic task creation, concurrent execution control, and real-time execution monitoring through a REST API — built with **.NET 8**, **Quartz.NET**, and **MySQL**.
 
 ---
 
@@ -37,9 +37,51 @@ A distributed task scheduling system built with **.NET 8**, **Quartz.NET**, and 
 The solution follows a clean architecture pattern split into three projects:
 
 ```
-TaskScheduler.Core           # Entities, DTOs, Interfaces
-TaskScheduler.Infrastructure # Quartz jobs, repositories, EF Core, services
+TaskScheduler.Core           # Entities, DTOs, Interfaces, Services
+TaskScheduler.Infrastructure # Quartz jobs, repositories, EF Core, QuartzTaskScheduler
 TaskScheduler.API            # ASP.NET Core controllers, DI wiring, startup
+```
+
+### Diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                        API Layer                        │
+│         TasksController  │  TradingServersController    │
+└─────────────────┬────────────────────┬──────────────────┘
+                  │                    │
+┌─────────────────▼────────────────────▼──────────────────┐
+│                       Core Layer                        │
+│                                                         │
+│   TaskService          TradingServerService             │
+│       │                       │                         │
+│   ITaskRepository   ITradingServerRepository            │
+│   IExecutionHistoryRepository                           │
+│   ITaskScheduler                                        │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────────┐
+│                  Infrastructure Layer                   │
+│                                                         │
+│  TaskRepository        QuartzTaskScheduler              │
+│  TradingServerRepository    │                           │
+│  ExecutionHistoryRepository │                           │
+│                        ┌────▼──────────────────┐        │
+│                        │   Quartz Scheduler    │        │
+│                        │  HeartbeatJob         │        │
+│                        │  ReportGenerationJob  │        │
+│                        │  SymbolDataPullJob    │        │
+│                        │  MasterServerSyncJob  │        │
+│                        └───────────────────────┘        │
+│                                                         │
+│  AppDbContext (EF Core)                                 │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────────┐
+│                      MySQL Database                     │
+│  ScheduledTasks  │  TaskExecutionHistories  │           │
+│  TradingServers  │  QRTZ_* (Quartz tables)  │           │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### Execution Flow
@@ -89,6 +131,8 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS taskscheduler;"
 > - `ScheduledTasks` — stores task configuration (schedule, job type, metadata)
 > - `TaskExecutionHistories` — stores per-execution records (start time, end time, duration, status)
 > - `TradingServers` — stores registered trading servers and their enabled/disabled state
+>
+> For reference, the full application schema SQL is available at `database/migrations.sql`.
 
 ### 4. Create the Quartz.NET schema
 
@@ -134,8 +178,8 @@ Job intervals are configured under `JobSettings` in `appsettings.json`, with sho
 | `GET` | `/api/tasks/{id}` | Get a task by ID |
 | `PUT` | `/api/tasks/{id}` | Update a task (partial update — only provided fields change) |
 | `DELETE` | `/api/tasks/{id}` | Delete a task and unschedule it |
-| `GET` | `/api/tasks/{id}/status` | Get execution status and history |
-| `POST` | `/api/tasks/{id}/trigger` | Manually trigger a task immediately |
+| `GET` | `/api/tasks/{id}/status` | Returns the current execution status and history of a task (latest 20 executions) |
+| `POST` | `/api/tasks/{id}/trigger` | Immediately triggers a task outside of its normal schedule |
 
 #### Create task — Simple schedule
 ```json
@@ -214,9 +258,9 @@ GET /api/tasks/{id}/status
 
 | Job | Schedule | Concurrent | Description |
 |---|---|---|---|
-| `HeartbeatJob` | Simple | No | Sends a heartbeat ping to an endpoint configured via `metadata.endpoint` |
-| `ReportGenerationJob` | Cron | Configurable | Generates a report; reads `reportType` from task metadata |
-| `SymbolDataPullJob` | Simple | No | Pulls symbol data for a specific trading server; one job per server |
+| `HeartbeatJob` | Simple | No | Simulates sending a heartbeat to an endpoint via a 1 second delay. Endpoint configured via `metadata.endpoint` |
+| `ReportGenerationJob` | Cron | Configurable | Simulates report generation via a 15 second delay. Report type configured via `metadata.reportType` |
+| `SymbolDataPullJob` | Simple | No | Simulates pulling symbol data for a specific trading server via a 1 second delay |
 | `MasterServerSyncJob` | Simple | No | Syncs enabled servers and manages `SymbolDataPullJob` lifecycle |
 
 ---
@@ -225,32 +269,34 @@ GET /api/tasks/{id}/status
 
 **Repository Pattern** — All database access goes through repository interfaces. Services depend on abstractions, not EF Core directly, keeping the service layer decoupled from persistence.
 
+**Scheduler Abstraction (`ITaskScheduler`)** — Quartz-specific scheduling logic is isolated behind an `ITaskScheduler` interface implemented by `QuartzTaskScheduler` in Infrastructure. This allows `TaskService` in Core to schedule, unschedule, and trigger jobs without any knowledge of Quartz. Swapping Quartz for another scheduler would only require a new `ITaskScheduler` implementation.
+
 **Global Job Execution Listener** — Rather than embedding history-tracking in each job, a single `JobExecutionListener` intercepts all executions via Quartz's listener API. This keeps jobs focused on their actual work and centralises monitoring.
 
 **Quartz Persistent Store with Clustering** — Quartz is configured with `UsePersistentStore` and `UseClustering()`. Jobs survive application restarts and the system can scale horizontally without duplicate executions.
 
 **Idempotent Master Job** — `MasterServerSyncJob` checks the database before creating a `SymbolDataPullJob`. If the DB record exists but the Quartz job is missing (e.g. after a crash), it reschedules rather than duplicating. Running the master job multiple times is safe.
 
-**System-Managed Jobs are Protected** — The API blocks manual creation of `MasterServerSyncJob` and `SymbolDataPullJob` with `403 Forbidden`, preventing accidental duplication or misconfiguration.
-
 ---
 
 ## Trade-offs
 
-**Stale `taskName` in JobDataMap after rename** — Renaming a task via `PUT /api/tasks/{id}` does not update the `taskName` stored inside Quartz's `JobDataMap`. Job logs will continue showing the old name until the task is rescheduled. Since `taskName` is only used for logging, there is no functional impact.
+**Deleting an active server while its job is still running** — If a server is deleted while its `SymbolDataPullJob` is still running, the job detects the missing server record, logs a message and skips execution gracefully.
 
-**Stuck `Running` history on crash** — Execution history is tracked in memory via `JobExecutionListener`. If the application crashes while a job is running, the `JobWasExecuted` callback never fires and that history record stays permanently as `Running` with no end time.
+**Direct database deletion leaves orphaned Quartz job** — Deleting a task record directly from the database bypasses `DELETE /api/tasks/{id}`, leaving the Quartz job running with no corresponding task record. The job continues firing but `JobExecutionListener` detects the missing record and logs a warning each time. Since Quartz uses a persistent store, the orphaned job survives restarts and can only be removed by manually cleaning the `QRTZ_*` tables. Always use `DELETE /api/tasks/{id}` to ensure proper cleanup.
+
+**Orphaned `Running` history on crash** — Execution history is tracked in memory via `JobExecutionListener`. If the application crashes while a job is running, the `JobWasExecuted` callback never fires, leaving the record stuck as `Running`. On the next startup, these orphaned records are automatically detected and marked as `Failed` with the message `"Application terminated unexpectedly"`.
 
 ---
 
 ## Assumptions
 
-**`MasterServerSyncJob` and `SymbolDataPullJob` are one-per-scope** — Only one `MasterServerSyncJob` ever exists (seeded on startup). For `SymbolDataPullJob`, exactly one job is created per server. When a server is disabled, its job is removed. When re-enabled, the existing record is rescheduled rather than duplicated.
-
 **`HeartbeatJob`, `MasterServerSyncJob`, and `SymbolDataPullJob` always run one at a time** — These jobs have `[DisallowConcurrentExecution]` applied directly on the class, so the `disallowConcurrent` flag on the API has no effect on them. Only `ReportGenerationJob` respects the flag.
 
-**Server enable/disable changes are eventually consistent** — The assessment requires tasks to be automatically created or removed when servers change state. This is fulfilled via `MasterServerSyncJob` which handles it on each trigger, making the system eventually consistent rather than immediately reactive. When a server is enabled or disabled via the API, its corresponding `SymbolDataPullJob` is not created or removed immediately — the change only takes effect on the next `MasterServerSyncJob` trigger. Until then, a newly enabled server has no running job, and a newly disabled server's job continues running.
+**`MasterServerSyncJob` and `SymbolDataPullJob` cannot be created manually via the API** — Only one `MasterServerSyncJob` ever exists (seeded on startup). `SymbolDataPullJob` instances are created automatically by `MasterServerSyncJob` — exactly one per enabled server. Manual creation via `POST /api/tasks` is blocked with `403 Forbidden`. Update and delete operations can still be performed manually through the API.
 
-**`MasterServerSyncJob` interval is seeded once from config** — The interval is read from `JobSettings:MasterServerSyncJob:IntervalSeconds` only on first startup. Changing the config value afterwards has no effect. To update the interval, use `PUT /api/tasks/{id}` with the new `intervalSeconds`, or delete the task record from the database and restart the application to re-seed from config.
+**Server enable/disable changes are eventually consistent** — `SymbolDataPullJob` creation and removal is handled by `MasterServerSyncJob` on each trigger, not immediately when a server is enabled or disabled. This satisfies the assessment requirement for automatic task management, but with an eventual consistency delay rather than an immediate reaction.
+
+**`MasterServerSyncJob` interval is seeded once from config** — The interval is read from `JobSettings:MasterServerSyncJob:IntervalSeconds` only on first startup. Changing the config value afterwards has no effect. To update the interval, use `PUT /api/tasks/{id}` with the new `intervalSeconds`, or call `DELETE /api/tasks/{id}` and restart the application to re-seed from config.
 
 **All timestamps are UTC** — No timezone conversion is applied anywhere in the system.
