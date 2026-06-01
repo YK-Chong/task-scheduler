@@ -154,6 +154,30 @@ Swagger UI: `http://localhost:{port}/swagger`
 
 On first startup the application will automatically run EF Core migrations and seed the `MasterServerSyncJob`.
 
+Logs are written to the console and to `logs/taskscheduler-YYYYMMDD.log` in the project root. Job execution logs follow the format `[TaskName] message`, for example:
+
+```
+[MasterServerSyncJob] Started. HistoryId: a3f1c2d4-...
+[MasterServerSyncJob] Syncing — 3 enabled server(s), 1 disabled server(s)
+[MasterServerSyncJob] Sync complete
+[MasterServerSyncJob] Completed in 523ms. HistoryId: a3f1c2d4-...
+```
+
+`HistoryId` is included in the start and completion logs to correlate each execution entry in the database, making it easy to trace a specific run from log to history record.
+
+### 6. Create trading servers (optional)
+
+This step is optional but required to demonstrate the dynamic task management feature. Trading servers must be created manually before `SymbolDataPullJob` instances are generated. Use the API or Swagger UI:
+
+```json
+POST /api/trading-servers
+{
+  "name": "ServerA"
+}
+```
+
+Once created, `MasterServerSyncJob` will automatically create a `SymbolDataPullJob` for each enabled server on its next trigger.
+
 ---
 
 ## Configuration
@@ -168,6 +192,8 @@ Job intervals are configured under `JobSettings` in `appsettings.json`, with sho
 ---
 
 ## API Reference
+
+> All request payload schemas and response models are available interactively via Swagger UI at `http://localhost:{port}/swagger`.
 
 ### Tasks
 
@@ -281,8 +307,6 @@ GET /api/tasks/{id}/status
 
 ## Trade-offs
 
-**Deleting an active server while its job is still running** — If a server is deleted while its `SymbolDataPullJob` is still running, the job detects the missing server record, logs a message and skips execution gracefully.
-
 **Direct database deletion leaves orphaned Quartz job** — Deleting a task record directly from the database bypasses `DELETE /api/tasks/{id}`, leaving the Quartz job running with no corresponding task record. The job continues firing but `JobExecutionListener` detects the missing record and logs a warning each time. Since Quartz uses a persistent store, the orphaned job survives restarts and can only be removed by manually cleaning the `QRTZ_*` tables. Always use `DELETE /api/tasks/{id}` to ensure proper cleanup.
 
 **Orphaned `Running` history on crash** — Execution history is tracked in memory via `JobExecutionListener`. If the application crashes while a job is running, the `JobWasExecuted` callback never fires, leaving the record stuck as `Running`. On the next startup, these orphaned records are automatically detected and marked as `Failed` with the message `"Application terminated unexpectedly"`.
@@ -298,5 +322,7 @@ GET /api/tasks/{id}/status
 **Server enable/disable changes are eventually consistent** — `SymbolDataPullJob` creation and removal is handled by `MasterServerSyncJob` on each trigger, not immediately when a server is enabled or disabled. This satisfies the assessment requirement for automatic task management, but with an eventual consistency delay rather than an immediate reaction.
 
 **`MasterServerSyncJob` interval is seeded once from config** — The interval is read from `JobSettings:MasterServerSyncJob:IntervalSeconds` only on first startup. Changing the config value afterwards has no effect. To update the interval, use `PUT /api/tasks/{id}` with the new `intervalSeconds`, or call `DELETE /api/tasks/{id}` and restart the application to re-seed from config.
+
+**Deleting an active server while its job is still running** — If a server is deleted while its `SymbolDataPullJob` is still running, the job detects the missing server record, logs a message and skips execution gracefully.
 
 **All timestamps are UTC** — No timezone conversion is applied anywhere in the system.
