@@ -10,7 +10,6 @@ A distributed task scheduling system that manages automated jobs across multiple
 - [Architecture Overview](#architecture-overview)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
-- [Configuration](#configuration)
 - [API Reference](#api-reference)
 - [Job Types](#job-types)
 - [Key Design Decisions](#key-design-decisions)
@@ -143,7 +142,25 @@ Quartz requires its own tables for persistent job storage. Download and run the 
 mysql -u root -p taskscheduler < tables_mysql_innodb.sql
 ```
 
-### 5. Run the application
+### 5. Configure job intervals
+
+Two system-managed jobs are seeded automatically on first startup. Their intervals are read from config at that point and cannot be changed via config afterwards — so configure them before running the app:
+
+- **`MasterServerSyncJob`** — scans enabled servers and creates/removes `SymbolDataPullJob` instances automatically
+- **`SymbolDataPullJob`** — created automatically per enabled server by `MasterServerSyncJob`
+
+Edit `TaskScheduler.API/appsettings.Development.json` to set the intervals. For local development, shorter intervals are recommended for faster feedback:
+
+```json
+"JobSettings": {
+  "MasterServerSyncJob": { "IntervalSeconds": 3600 },
+  "SymbolDataPullJob":   { "IntervalSeconds": 300 }
+}
+```
+
+> Other job types (`HeartbeatJob`, `ReportGenerationJob`) are not system-managed and must be created manually via `POST /api/tasks`.
+
+### 6. Run the application
 
 ```bash
 cd TaskScheduler.API
@@ -165,7 +182,7 @@ Logs are written to the console and to `logs/taskscheduler-YYYYMMDD.log` in the 
 
 `HistoryId` is included in the start and completion logs to correlate each execution entry in the database, making it easy to trace a specific run from log to history record.
 
-### 6. Create trading servers (optional)
+### 7. Create trading servers (optional)
 
 This step is optional but required to demonstrate the dynamic task management feature. Trading servers must be created manually before `SymbolDataPullJob` instances are generated. Use the API or Swagger UI:
 
@@ -177,17 +194,6 @@ POST /api/trading-servers
 ```
 
 Once created, `MasterServerSyncJob` will automatically create a `SymbolDataPullJob` for each enabled server on its next trigger.
-
----
-
-## Configuration
-
-Job intervals are configured under `JobSettings` in `appsettings.json`, with shorter development overrides in `appsettings.Development.json`.
-
-| Key | Production | Development | Description |
-|---|---|---|---|
-| `JobSettings:MasterServerSyncJob:IntervalSeconds` | `3600` | `30` | How often the master job syncs servers |
-| `JobSettings:SymbolDataPullJob:IntervalSeconds` | `300` | `10` | How often each server's pull job runs |
 
 ---
 
