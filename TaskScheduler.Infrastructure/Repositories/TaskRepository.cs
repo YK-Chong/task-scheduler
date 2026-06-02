@@ -17,9 +17,7 @@ public class TaskRepository : ITaskRepository
 
     public async Task<ScheduledTask?> GetByIdAsync(string id)
     {
-        return await _context.ScheduledTasks
-            .Include(t => t.ExecutionHistories)
-            .FirstOrDefaultAsync(t => t.Id == id);
+        return await _context.ScheduledTasks.FindAsync(id);
     }
 
     public async Task<PagedResult<ScheduledTask>> GetAllAsync(int page, int pageSize, string? jobTypeFilter, bool? isEnabledFilter)
@@ -35,11 +33,13 @@ public class TaskRepository : ITaskRepository
 
         var totalCount = await query.CountAsync();
 
-        var items = await query
-            .OrderByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
+        var items = totalCount == 0
+            ? new List<ScheduledTask>()
+            : await query
+                .OrderByDescending(t => t.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
 
         return new PagedResult<ScheduledTask>
         {

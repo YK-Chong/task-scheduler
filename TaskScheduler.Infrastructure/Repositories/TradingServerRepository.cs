@@ -14,13 +14,6 @@ public class TradingServerRepository : ITradingServerRepository
         _context = context;
     }
 
-    public async Task<List<TradingServer>> GetAllEnabledAsync()
-    {
-        return await _context.TradingServers
-            .Where(s => s.IsEnabled)
-            .ToListAsync();
-    }
-
     public async Task<TradingServer> GetByIdAsync(string id)
     {
         return await _context.TradingServers.FindAsync(id);
