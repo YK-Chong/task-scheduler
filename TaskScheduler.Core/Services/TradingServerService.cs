@@ -1,3 +1,4 @@
+using TaskScheduler.Core.DTOs;
 using TaskScheduler.Core.Entities;
 using TaskScheduler.Core.Interfaces;
 
@@ -12,12 +13,13 @@ public class TradingServerService : ITradingServerService
         _serverRepo = repository;
     }
 
-    public async Task<List<TradingServer>> GetAllAsync()
+    public async Task<List<TradingServerResponse>> GetAllAsync()
     {
-        return await _serverRepo.GetAllAsync();
+        var servers = await _serverRepo.GetAllAsync();
+        return servers.Select(MapToResponse).ToList();
     }
 
-    public async Task<TradingServer> CreateAsync(string name)
+    public async Task<TradingServerResponse> CreateAsync(string name)
     {
         var server = new TradingServer
         {
@@ -25,20 +27,33 @@ public class TradingServerService : ITradingServerService
             IsEnabled = true,
             CreatedAt = DateTime.UtcNow
         };
-        return await _serverRepo.CreateAsync(server);
+        await _serverRepo.CreateAsync(server);
+        return MapToResponse(server);
     }
 
-    public async Task<TradingServer?> SetEnabledAsync(string id, bool isEnabled)
+    public async Task<TradingServerResponse?> SetEnabledAsync(string id, bool isEnabled)
     {
         var server = await _serverRepo.GetByIdAsync(id);
         if (server == null) return null;
 
         server.IsEnabled = isEnabled;
-        return await _serverRepo.UpdateAsync(server);
+        await _serverRepo.UpdateAsync(server);
+        return MapToResponse(server);
     }
 
     public async Task<bool> DeleteAsync(string id)
     {
         return await _serverRepo.DeleteAsync(id);
+    }
+
+    private static TradingServerResponse MapToResponse(TradingServer server)
+    {
+        return new TradingServerResponse
+        {
+            Id = server.Id,
+            Name = server.Name,
+            IsEnabled = server.IsEnabled,
+            CreatedAt = server.CreatedAt
+        };
     }
 }

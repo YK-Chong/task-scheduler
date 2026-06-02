@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using TaskScheduler.Core.DTOs;
-using TaskScheduler.Core.Entities;
 using TaskScheduler.Core.Interfaces;
 
 namespace TaskScheduler.API.Controllers;
@@ -10,17 +9,19 @@ namespace TaskScheduler.API.Controllers;
 public class TradingServersController : ControllerBase
 {
     private readonly ITradingServerService _serverService;
+    private readonly ILogger<TradingServersController> _logger;
 
-    public TradingServersController(ITradingServerService serverService)
+    public TradingServersController(ITradingServerService serverService, ILogger<TradingServersController> logger)
     {
         _serverService = serverService;
+        _logger = logger;
     }
 
     /// <summary>
     /// Returns a list of all trading servers.
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(List<TradingServer>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(List<TradingServerResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll()
     {
         var servers = await _serverService.GetAllAsync();
@@ -32,7 +33,8 @@ public class TradingServersController : ControllerBase
     /// A SymbolDataPullJob will be automatically created on the next MasterServerSyncJob trigger.
     /// </summary>
     [HttpPost]
-    [ProducesResponseType(typeof(TradingServer), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(TradingServerResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateServerRequest request)
     {
         var server = await _serverService.CreateAsync(request.Name);
@@ -43,7 +45,7 @@ public class TradingServersController : ControllerBase
     /// Enables a trading server. Its SymbolDataPullJob will be created on the next MasterServerSyncJob trigger.
     /// </summary>
     [HttpPut("{id}/enable")]
-    [ProducesResponseType(typeof(TradingServer), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TradingServerResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Enable(string id)
     {
@@ -56,7 +58,7 @@ public class TradingServersController : ControllerBase
     /// Disables a trading server. Its SymbolDataPullJob will be removed on the next MasterServerSyncJob trigger.
     /// </summary>
     [HttpPut("{id}/disable")]
-    [ProducesResponseType(typeof(TradingServer), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TradingServerResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Disable(string id)
     {

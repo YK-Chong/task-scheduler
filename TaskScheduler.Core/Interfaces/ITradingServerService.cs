@@ -1,11 +1,11 @@
-﻿using TaskScheduler.Core.Entities;
+using TaskScheduler.Core.DTOs;
 
 namespace TaskScheduler.Core.Interfaces;
 
 public interface ITradingServerService
 {
-    Task<List<TradingServer>> GetAllAsync();
-    Task<TradingServer> CreateAsync(string name);
-    Task<TradingServer> SetEnabledAsync(string id, bool isEnabled);
+    Task<List<TradingServerResponse>> GetAllAsync();
+    Task<TradingServerResponse> CreateAsync(string name);
+    Task<TradingServerResponse?> SetEnabledAsync(string id, bool isEnabled);
     Task<bool> DeleteAsync(string id);
 }
